@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Monthly Budget</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: linear-gradient(135deg, #0a0a1a 0%, #0d1b2a 50%, #0a1628 100%); min-height: 100vh; font-family: 'DM Sans', sans-serif; color: #e8e8f0; }
+input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;}
+input[type=number]{-moz-appearance:textfield;}
+.upload-zone{border:2px dashed rgba(79,142,247,0.3);border-radius:14px;padding:28px 20px;text-align:center;cursor:pointer;transition:all 0.2s;background:rgba(79,142,247,0.04);}
+.upload-zone:hover,.upload-zone.drag{border-color:#4F8EF7;background:rgba(79,142,247,0.1);}
+.tab-btn{flex:1;padding:10px 0;border-radius:7px;border:none;cursor:pointer;font-family:inherit;font-size:13px;font-weight:600;transition:all 0.2s;}
+.tx-row{display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);margin-bottom:6px;}
+.pill{display:inline-block;padding:2px 10px;border-radius:99px;font-size:11px;font-weight:600;}
+button:disabled{opacity:0.5;cursor:not-allowed;}
+.spinner{display:inline-block;width:16px;height:16px;border:2px solid rgba(255,255,255,0.2);border-top-color:#4F8EF7;border-radius:50%;animation:spin 0.7s linear infinite;vertical-align:middle;margin-right:6px;}
+@keyframes spin{to{transform:rotate(360deg);}}
+select{background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#fff;font-family:inherit;font-size:12px;padding:4px 8px;outline:none;cursor:pointer;}
+select option{background:#1a2540;}
+.card{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.07);border-radius:14px;padding:16px 14px;text-align:center;}
+.card-label{font-size:10px;color:#666;text-transform:uppercase;letter-spacing:0.12em;margin-bottom:6px;}
+.bar-bg{height:6px;background:rgba(255,255,255,0.07);border-radius:99px;overflow:hidden;margin-top:8px;}
+.save-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:#4FCF8E;margin-left:6px;vertical-align:middle;animation:pulse 2s ease-in-out infinite;}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.3;}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback } = React;
+
+const CATEGORIES = [
+{ id:“housing”,       label:“Housing & Utilities”,           icon:“🏠”, color:”#4F8EF7” },
+{ id:“food”,          label:“Food & Groceries”,              icon:“🛒”, color:”#F7A44F” },
+{ id:“transport”,     label:“Transport”,                     icon:“🚗”, color:”#4FCF8E” },
+{ id:“entertainment”, label:“Entertainment & Subscriptions”, icon:“🎬”, color:”#B44FF7” },
+{ id:“savings”,       label:“Savings & Investments”,         icon:“💰”, color:”#F7E44F” },
+{ id:“health”,        label:“Health & Insurance”,            icon:“❤️”, color:”#F74F6A” },
+{ id:“debt”,          label:“Debt Payments”,                 icon:“📋”, color:”#4FF7F0” },
+{ id:“personal”,      label:“Personal & Misc”,               icon:“✨”, color:”#F74FB8” },
+];
+const MONTHS = [“January”,“February”,“March”,“April”,“May”,“June”,“July”,“August”,“September”,“October”,“November”,“December”];
+
+function daysInMonth(m,y){return new Date(y,m+1,0).getDate();}
+function fmt(v){return Number(v||0).toLocaleString(“en-US”,{minimumFractionDigits:2,maximumFractionDigits:2});}
+function fmtInt(v){return Number(v||0).toLocaleString(“en-US”,{minimumFractionDigits:0,maximumFractionDigits:0});}
+function parse(s){return parseFloat((s||””).toString().replace(/[^0-9.]/g,””))||0;}
+function storageKey(m,y){return `budget_${y}_${m}`;}
+function fileToBase64(file){return new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result.split(”,”)[1]);r.onerror=()=>rej(new Error(“Read failed”));r.readAsDataURL(file);});}
+
+function loadMonth(m,y){
+try{ const raw=localStorage.getItem(storageKey(m,y)); return raw?JSON.parse(raw):null; }
+catch(e){ return null; }
+}
+function saveMonth(m,y,data){
+try{ localStorage.setItem(storageKey(m,y),JSON.stringify(data)); }catch(e){}
+}
+function getAllMonths(){
+const keys=[]; for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(k&&k.startsWith(“budget_”))keys.push(k);}
+return keys.map(k=>{const [,y,m]=k.split(”_”);return{year:parseInt(y),month:parseInt(m),key:k};}).sort((a,b)=>b.year-a.year||b.month-a.month);
+}
+
+function DonutChart({budgets,transactions}){
+const total=CATEGORIES.reduce((s,c)=>s+(budgets[c.id]||0),0);
+if(!total)return <div style={{display:“flex”,alignItems:“center”,justifyContent:“center”,height:180,color:”#555”,fontSize:13}}>Add budget amounts to see chart</div>;
+let cum=0;const r=70,cx=90,cy=90,sw=22,circ=2*Math.PI*r;
+const segs=CATEGORIES.map(c=>{const val=budgets[c.id]||0,frac=val/total,dash=frac*circ,offset=circ-cum*circ;cum+=frac;return{…c,dash,offset,val};}).filter(s=>s.val>0);
+const spent=CATEGORIES.reduce((s,c)=>s+transactions.filter(t=>t.category===c.id).reduce((a,t)=>a+t.amount,0),0);
+const pct=Math.min(100,Math.round((spent/total)*100));
+return(
+<div style={{position:“relative”,width:180,height:180,flexShrink:0}}>
+<svg width={180} height={180} style={{transform:“rotate(-90deg)”}}>
+<circle cx={cx} cy={cy} r={r} fill="none" stroke="#1a1a2e" strokeWidth={sw}/>
+{segs.map(s=><circle key={s.id} cx={cx} cy={cy} r={r} fill=“none” stroke={s.color} strokeWidth={sw} strokeDasharray={`${s.dash} ${circ-s.dash}`} strokeDashoffset={s.offset}/>)}
+</svg>
+<div style={{position:“absolute”,inset:0,display:“flex”,flexDirection:“column”,alignItems:“center”,justifyContent:“center”}}>
+<div style={{fontSize:22,fontWeight:800,color:”#fff”}}>{pct}%</div>
+<div style={{fontSize:10,color:”#888”,letterSpacing:“0.08em”,textTransform:“uppercase”}}>used</div>
+</div>
+</div>
+);
+}
+
+function MiniBar({value,max,color}){
+const pct=max>0?Math.min(100,(value/max)*100):0;
+return <div className="bar-bg"><div style={{height:“100%”,borderRadius:99,background:color,width:`${pct}%`,transition:“width 0.4s”}}/></div>;
+}
+
+function App(){
+const now=new Date();
+const [month,setMonth]=useState(now.getMonth());
+const [year,setYear]=useState(now.getFullYear());
+const [income,setIncome]=useState(””);
+const [budgets,setBudgets]=useState({});
+const [transactions,setTransactions]=useState([]);
+const [tab,setTab]=useState(“budget”);
+const [dragging,setDragging]=useState(false);
+const [uploading,setUploading]=useState(false);
+const [uploadMsg,setUploadMsg]=useState(null);
+const [manualDesc,setManualDesc]=useState(””);
+const [manualAmt,setManualAmt]=useState(””);
+const [manualCat,setManualCat]=useState(“food”);
+const [manualDate,setManualDate]=useState(now.toISOString().split(“T”)[0]);
+const [savedAt,setSavedAt]=useState(null);
+const fileRef=useRef();
+
+// Load month data from localStorage whenever month/year changes
+useEffect(()=>{
+const data=loadMonth(month,year);
+if(data){
+setIncome(data.income||””);
+setBudgets(data.budgets||{});
+setTransactions(data.transactions||[]);
+} else {
+setIncome(””);
+setBudgets({});
+setTransactions([]);
+}
+setSavedAt(null);
+},[month,year]);
+
+// Auto-save whenever data changes
+useEffect(()=>{
+const timer=setTimeout(()=>{
+saveMonth(month,year,{income,budgets,transactions});
+setSavedAt(new Date());
+},600);
+return ()=>clearTimeout(timer);
+},[income,budgets,transactions,month,year]);
+
+const days=daysInMonth(month,year);
+const daysPassed=(now.getMonth()===month&&now.getFullYear()===year)?now.getDate():days;
+const spentByCat={};
+CATEGORIES.forEach(c=>{spentByCat[c.id]=transactions.filter(t=>t.category===c.id).reduce((s,t)=>s+t.amount,0);});
+const totalBudgeted=CATEGORIES.reduce((s,c)=>s+(budgets[c.id]||0),0);
+const totalSpent=Object.values(spentByCat).reduce((a,b)=>a+b,0);
+const incomeNum=parse(income);
+const unallocated=incomeNum-totalBudgeted;
+const leftover=totalBudgeted-totalSpent;
+const dailyAvg=daysPassed>0?totalSpent/daysPassed:0;
+const projected=dailyAvg*days;
+const overBudget=CATEGORIES.filter(c=>spentByCat[c.id]>(budgets[c.id]||0)&&(budgets[c.id]||0)>0);
+
+function prevMonth(){if(month===0){setMonth(11);setYear(y=>y-1);}else setMonth(m=>m-1);}
+function nextMonth(){if(month===11){setMonth(0);setYear(y=>y+1);}else setMonth(m=>m+1);}
+
+function addManual(){
+if(!manualAmt||!manualDesc)return;
+setTransactions(prev=>[…prev,{id:Date.now(),description:manualDesc,amount:parse(manualAmt),category:manualCat,date:manualDate,source:“manual”}]);
+setManualDesc(””);setManualAmt(””);
+}
+
+async function processFile(file){
+setUploading(true);setUploadMsg(null);
+try{
+if(!file.type.startsWith(“image/”)&&file.type!==“application/pdf”){setUploadMsg({type:“error”,text:“Please upload an image or PDF.”});setUploading(false);return;}
+const base64=await fileToBase64(file);
+const userContent=file.type===“application/pdf”
+?[{type:“document”,source:{type:“base64”,media_type:“application/pdf”,data:base64}},{type:“text”,text:“Extract all transactions as JSON only.”}]
+:[{type:“image”,source:{type:“base64”,media_type:file.type,data:base64}},{type:“text”,text:“Extract all transactions as JSON only.”}];
+const res=await fetch(“https://api.anthropic.com/v1/messages”,{
+method:“POST”,headers:{“Content-Type”:“application/json”},
+body:JSON.stringify({
+model:“claude-sonnet-4-20250514”,max_tokens:4000,
+system:`You are a financial data extractor. Extract ALL transactions and return ONLY a JSON array. No markdown, no explanation. Each item: {"description":string,"amount":number,"date":"YYYY-MM-DD","category":one of [housing,food,transport,entertainment,savings,health,debt,personal]}. If year missing use ${year}. Classify by merchant.`,
+messages:[{role:“user”,content:userContent}]
+})
+});
+const data=await res.json();
+if(data.error)throw new Error(data.error.message);
+const text=data.content.map(b=>b.text||””).join(””);
+const parsed=JSON.parse(text.replace(/`json|`/g,””).trim());
+if(!Array.isArray(parsed))throw new Error(“Unexpected response”);
+const newTx=parsed.map((t,i)=>({
+id:Date.now()+i,
+description:t.description||“Unknown”,
+amount:Math.abs(parseFloat(t.amount)||0),
+category:CATEGORIES.find(c=>c.id===t.category)?t.category:“personal”,
+date:t.date||`${year}-${String(month+1).padStart(2,"0")}-01`,
+source:“import”
+}));
+setTransactions(prev=>[…prev,…newTx]);
+setUploadMsg({type:“success”,text:`✓ Imported ${newTx.length} transactions from ${file.name}`});
+}catch(err){setUploadMsg({type:“error”,text:`Error: ${err.message}`});}
+setUploading(false);
+}
+
+const catColor=id=>CATEGORIES.find(c=>c.id===id)?.color||”#888”;
+const catIcon=id=>CATEGORIES.find(c=>c.id===id)?.icon||”•”;
+const catLabel=id=>CATEGORIES.find(c=>c.id===id)?.label||id;
+const sortedTx=[…transactions].sort((a,b)=>new Date(b.date)-new Date(a.date));
+
+// History data
+const allMonths=getAllMonths();
+
+return(
+<div style={{minHeight:“100vh”,paddingBottom:60}}>
+{/* Header */}
+<div style={{background:“linear-gradient(180deg,rgba(79,142,247,0.12) 0%,transparent 100%)”,borderBottom:“1px solid rgba(255,255,255,0.06)”,padding:“32px 24px 24px”}}>
+<div style={{maxWidth:720,margin:“0 auto”}}>
+<div style={{display:“flex”,alignItems:“center”,justifyContent:“space-between”,flexWrap:“wrap”,gap:12}}>
+<div>
+<div style={{fontSize:11,letterSpacing:“0.15em”,textTransform:“uppercase”,color:”#4F8EF7”,marginBottom:4}}>
+Monthly Budget
+{savedAt&&<span className=“save-dot” title={`Saved ${savedAt.toLocaleTimeString()}`}/>}
+</div>
+<h1 style={{fontSize:32,fontWeight:700,color:”#fff”,fontFamily:”‘DM Serif Display’,serif”}}>{MONTHS[month]} {year}</h1>
+</div>
+<div style={{display:“flex”,gap:8}}>
+<button onClick={prevMonth} style={{background:“rgba(255,255,255,0.07)”,border:“1px solid rgba(255,255,255,0.1)”,borderRadius:8,color:”#fff”,width:36,height:36,cursor:“pointer”,fontSize:16}}>‹</button>
+<button onClick={nextMonth} style={{background:“rgba(255,255,255,0.07)”,border:“1px solid rgba(255,255,255,0.1)”,borderRadius:8,color:”#fff”,width:36,height:36,cursor:“pointer”,fontSize:16}}>›</button>
+</div>
+</div>
+<div style={{marginTop:20,background:“rgba(255,255,255,0.04)”,borderRadius:12,border:“1px solid rgba(255,255,255,0.08)”,padding:“14px 20px”,display:“flex”,alignItems:“center”,gap:16,flexWrap:“wrap”}}>
+<div style={{fontSize:12,color:”#888”,textTransform:“uppercase”,letterSpacing:“0.1em”}}>Income</div>
+<div style={{display:“flex”,alignItems:“center”,gap:8,flex:1}}>
+<span style={{color:”#4FCF8E”,fontSize:18,fontWeight:600}}>$</span>
+<input type=“number” placeholder=“Enter monthly income” value={income} onChange={e=>setIncome(e.target.value)}
+style={{background:“transparent”,border:“none”,outline:“none”,color:”#fff”,fontSize:18,fontWeight:600,fontFamily:“inherit”,width:“100%”,minWidth:120}}/>
+</div>
+{incomeNum>0&&<div style={{fontSize:13,color:unallocated<0?”#F74F6A”:”#4FCF8E”,fontWeight:600}}>{unallocated<0?`⚠ Over by $${fmtInt(Math.abs(unallocated))}`:`$${fmtInt(unallocated)} unallocated`}</div>}
+</div>
+</div>
+</div>
+
+```
+  <div style={{maxWidth:720,margin:"0 auto",padding:"0 24px"}}>
+    {/* Summary */}
+    <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,marginTop:24}}>
+      {[{label:"Budgeted",value:totalBudgeted,color:"#4F8EF7"},{label:"Spent",value:totalSpent,color:"#F7A44F"},{label:"Remaining",value:leftover,color:leftover<0?"#F74F6A":"#4FCF8E"}].map(c=>(
+        <div key={c.label} className="card">
+          <div className="card-label">{c.label}</div>
+          <div style={{fontSize:20,fontWeight:700,color:c.color}}>${fmtInt(c.value)}</div>
+        </div>
+      ))}
+    </div>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginTop:12}}>
+      <div className="card">
+        <div className="card-label">Daily Average</div>
+        <div style={{fontSize:22,fontWeight:700,color:"#4FF7F0"}}>${fmt(dailyAvg)}</div>
+        <div style={{fontSize:11,color:"#555",marginTop:4}}>over {daysPassed} of {days} days</div>
+      </div>
+      <div className="card">
+        <div className="card-label">Projected Monthly</div>
+        <div style={{fontSize:22,fontWeight:700,color:projected>totalBudgeted&&totalBudgeted>0?"#F74F6A":"#F74FB8"}}>${fmtInt(projected)}</div>
+        <div style={{fontSize:11,color:"#555",marginTop:4}}>at current rate</div>
+      </div>
+    </div>
+
+    {/* Donut */}
+    {totalBudgeted>0&&(
+      <div style={{marginTop:20,background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:16,padding:20,display:"flex",gap:20,alignItems:"center",flexWrap:"wrap"}}>
+        <DonutChart budgets={budgets} transactions={transactions}/>
+        <div style={{flex:1,minWidth:160}}>
+          {CATEGORIES.filter(c=>budgets[c.id]>0).map(c=>(
+            <div key={c.id} style={{display:"flex",alignItems:"center",gap:8,marginBottom:7}}>
+              <div style={{width:8,height:8,borderRadius:"50%",background:c.color,flexShrink:0}}/>
+              <span style={{fontSize:12,color:"#aaa",flex:1}}>{c.label}</span>
+              <span style={{fontSize:12,color:"#fff",fontWeight:600}}>${fmtInt(budgets[c.id])}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    )}
+
+    {/* Tabs */}
+    <div style={{display:"flex",gap:4,marginTop:24,background:"rgba(255,255,255,0.04)",borderRadius:10,padding:4}}>
+      {[["budget","📊 Budget"],["track","💳 Transactions"],["import","📄 Import"],["history","🗂 History"]].map(([t,label])=>(
+        <button key={t} className="tab-btn" onClick={()=>setTab(t)}
+          style={{background:tab===t?"rgba(79,142,247,0.2)":"transparent",color:tab===t?"#4F8EF7":"#666",borderBottom:tab===t?"2px solid #4F8EF7":"2px solid transparent"}}>
+          {label}
+        </button>
+      ))}
+    </div>
+
+    {/* ── BUDGET TAB ── */}
+    {tab==="budget"&&(
+      <div style={{marginTop:16,display:"flex",flexDirection:"column",gap:10,paddingBottom:40}}>
+        {CATEGORIES.map(c=>{
+          const b=budgets[c.id]||0,s=spentByCat[c.id]||0;
+          const pct=b>0?Math.min(100,(s/b)*100):0,over=s>b&&b>0;
+          const catDaily=daysPassed>0?s/daysPassed:0;
+          return(
+            <div key={c.id} style={{background:"rgba(255,255,255,0.03)",border:`1px solid ${over?"rgba(247,79,106,0.3)":"rgba(255,255,255,0.07)"}`,borderRadius:14,padding:"16px 18px"}}>
+              <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:b>0?10:0}}>
+                <span style={{fontSize:20}}>{c.icon}</span>
+                <span style={{flex:1,fontSize:14,fontWeight:500,color:"#ddd"}}>{c.label}</span>
+                <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4}}>
+                  <div style={{display:"flex",alignItems:"center",background:"rgba(255,255,255,0.06)",borderRadius:8,padding:"6px 12px",gap:4}}>
+                    <span style={{color:c.color,fontWeight:700}}>$</span>
+                    <input type="number" placeholder="0" value={budgets[c.id]||""} onChange={e=>setBudgets(p=>({...p,[c.id]:parse(e.target.value)}))}
+                      style={{background:"transparent",border:"none",outline:"none",color:"#fff",fontSize:15,fontWeight:600,fontFamily:"inherit",width:80,textAlign:"right"}}/>
+                  </div>
+                  {s>0&&<div style={{fontSize:11,color:"#555"}}>spent: <span style={{color:c.color}}>${fmt(s)}</span> · <span style={{color:"#4FF7F0"}}>${fmt(catDaily)}/day</span></div>}
+                </div>
+              </div>
+              {b>0&&(
+                <div>
+                  <div className="bar-bg"><div style={{height:"100%",borderRadius:99,background:over?"#F74F6A":c.color,width:`${pct}%`,transition:"width 0.4s"}}/></div>
+                  <div style={{display:"flex",justifyContent:"space-between",marginTop:5,fontSize:11,color:"#555"}}>
+                    <span>{Math.round(pct)}% used</span>
+                    <span style={{color:over?"#F74F6A":"#4FCF8E"}}>{over?`-$${fmt(s-b)} over`:`$${fmt(b-s)} left`}</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    )}
+
+    {/* ── TRANSACTIONS TAB ── */}
+    {tab==="track"&&(
+      <div style={{marginTop:16,paddingBottom:40}}>
+        <div style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:14,padding:18,marginBottom:20}}>
+          <div style={{fontSize:12,color:"#888",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:14}}>Add Transaction Manually</div>
+          <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+            <input placeholder="Description" value={manualDesc} onChange={e=>setManualDesc(e.target.value)}
+              style={{flex:2,minWidth:140,background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:8,color:"#fff",fontFamily:"inherit",fontSize:14,padding:"8px 12px",outline:"none"}}/>
+            <input type="number" placeholder="Amount $" value={manualAmt} onChange={e=>setManualAmt(e.target.value)}
+              style={{flex:1,minWidth:90,background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:8,color:"#fff",fontFamily:"inherit",fontSize:14,padding:"8px 12px",outline:"none"}}/>
+            <input type="date" value={manualDate} onChange={e=>setManualDate(e.target.value)}
+              style={{flex:1,minWidth:130,background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:8,color:"#fff",fontFamily:"inherit",fontSize:14,padding:"8px 12px",outline:"none",colorScheme:"dark"}}/>
+            <select value={manualCat} onChange={e=>setManualCat(e.target.value)} style={{flex:1,minWidth:130}}>
+              {CATEGORIES.map(c=><option key={c.id} value={c.id}>{c.icon} {c.label}</option>)}
+            </select>
+            <button onClick={addManual} disabled={!manualAmt||!manualDesc}
+              style={{background:"#4F8EF7",border:"none",borderRadius:8,color:"#fff",fontFamily:"inherit",fontSize:14,fontWeight:600,padding:"8px 20px",cursor:"pointer"}}>+ Add</button>
+          </div>
+        </div>
+        {overBudget.length>0&&(
+          <div style={{marginBottom:16,background:"rgba(247,79,106,0.1)",border:"1px solid rgba(247,79,106,0.3)",borderRadius:10,padding:"12px 16px",fontSize:13,color:"#F74F6A"}}>
+            ⚠ Over budget: {overBudget.map(c=>c.label).join(", ")}
+          </div>
+        )}
+        {sortedTx.length===0
+          ?<div style={{textAlign:"center",color:"#444",padding:"40px 0",fontSize:14}}>No transactions yet. Add manually or import a statement.</div>
+          :<>
+            <div style={{fontSize:12,color:"#555",marginBottom:10}}>{sortedTx.length} transaction{sortedTx.length!==1?"s":""} · Total: <span style={{color:"#F7A44F",fontWeight:600}}>${fmt(totalSpent)}</span> · Daily avg: <span style={{color:"#4FF7F0",fontWeight:600}}>${fmt(dailyAvg)}</span></div>
+            {sortedTx.map(t=>(
+              <div key={t.id} className="tx-row">
+                <span style={{fontSize:18}}>{catIcon(t.category)}</span>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:13,fontWeight:500,color:"#ddd"}}>{t.description}</div>
+                  <div style={{fontSize:11,color:"#555",marginTop:2}}>
+                    {t.date} ·&nbsp;
+                    <span className="pill" style={{background:catColor(t.category)+"22",color:catColor(t.category)}}>{catLabel(t.category)}</span>
+                    {t.source==="import"&&<span className="pill" style={{background:"rgba(79,142,247,0.15)",color:"#4F8EF7",marginLeft:4}}>imported</span>}
+                  </div>
+                </div>
+                <div style={{fontSize:15,fontWeight:700,color:"#F7A44F"}}>${fmt(t.amount)}</div>
+                <button onClick={()=>setTransactions(prev=>prev.filter(x=>x.id!==t.id))} style={{background:"transparent",border:"none",color:"#444",cursor:"pointer",fontSize:16,padding:"0 4px"}}>✕</button>
+              </div>
+            ))}
+          </>
+        }
+      </div>
+    )}
+
+    {/* ── IMPORT TAB ── */}
+    {tab==="import"&&(
+      <div style={{marginTop:16,paddingBottom:40}}>
+        <div className={`upload-zone${dragging?" drag":""}`}
+          onDragOver={e=>{e.preventDefault();setDragging(true);}}
+          onDragLeave={()=>setDragging(false)}
+          onDrop={e=>{e.preventDefault();setDragging(false);const f=e.dataTransfer.files[0];if(f)processFile(f);}}
+          onClick={()=>!uploading&&fileRef.current.click()}>
+          <input ref={fileRef} type="file" accept="image/*,.pdf" style={{display:"none"}} onChange={e=>e.target.files[0]&&processFile(e.target.files[0])}/>
+          <div style={{fontSize:36,marginBottom:10}}>📄</div>
+          {uploading
+            ?<div style={{color:"#4F8EF7",fontSize:14}}><span className="spinner"/>Analysing statement with AI…</div>
+            :<>
+              <div style={{fontSize:15,fontWeight:600,color:"#ccc",marginBottom:6}}>Drop a bank or credit card statement here</div>
+              <div style={{fontSize:13,color:"#555"}}>Supports images (JPG, PNG) and PDF files</div>
+              <div style={{marginTop:14,display:"inline-block",background:"rgba(79,142,247,0.15)",border:"1px solid rgba(79,142,247,0.3)",borderRadius:8,padding:"8px 20px",fontSize:13,color:"#4F8EF7",fontWeight:600}}>Browse Files</div>
+            </>
+          }
+        </div>
+        {uploadMsg&&(
+          <div style={{marginTop:14,padding:"12px 16px",borderRadius:10,fontSize:13,fontWeight:500,
+            background:uploadMsg.type==="success"?"rgba(79,207,142,0.1)":"rgba(247,79,106,0.1)",
+            border:`1px solid ${uploadMsg.type==="success"?"rgba(79,207,142,0.3)":"rgba(247,79,106,0.3)"}`,
+            color:uploadMsg.type==="success"?"#4FCF8E":"#F74F6A"}}>
+            {uploadMsg.text}
+          </div>
+        )}
+        <div style={{marginTop:20,background:"rgba(255,255,255,0.02)",borderRadius:12,border:"1px solid rgba(255,255,255,0.05)",padding:16}}>
+          <div style={{fontSize:12,color:"#555",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10}}>How it works</div>
+          <div style={{fontSize:13,color:"#666",lineHeight:1.8}}>Upload a photo or PDF of your bank or credit card statement. Claude AI will read every transaction, categorise it automatically, and add it to your tracker. Head to the <strong style={{color:"#aaa"}}>Transactions</strong> tab to review, re-categorise, or delete entries.</div>
+        </div>
+      </div>
+    )}
+
+    {/* ── HISTORY TAB ── */}
+    {tab==="history"&&(
+      <div style={{marginTop:16,paddingBottom:40}}>
+        {allMonths.length===0?(
+          <div style={{textAlign:"center",color:"#444",padding:"40px 0",fontSize:14}}>No historical data yet. Your data will appear here as you add transactions each month.</div>
+        ):(
+          <>
+            <div style={{fontSize:12,color:"#555",marginBottom:16}}>{allMonths.length} month{allMonths.length!==1?"s":""} saved locally in this browser</div>
+            {allMonths.map(({month:m,year:y,key})=>{
+              const data=loadMonth(m,y);
+              if(!data)return null;
+              const mTx=data.transactions||[];
+              const mBudgets=data.budgets||{};
+              const mIncome=parse(data.income||"0");
+              const mSpent=mTx.reduce((s,t)=>s+t.amount,0);
+              const mBudgeted=CATEGORIES.reduce((s,c)=>s+(mBudgets[c.id]||0),0);
+              const mDays=daysInMonth(m,y);
+              const mDailyAvg=mDays>0?mSpent/mDays:0;
+              const isCurrentMonth=m===month&&y===year;
+              const pct=mBudgeted>0?Math.min(100,(mSpent/mBudgeted)*100):0;
+              const over=mSpent>mBudgeted&&mBudgeted>0;
+              return(
+                <div key={key} style={{background:isCurrentMonth?"rgba(79,142,247,0.06)":"rgba(255,255,255,0.03)",border:`1px solid ${isCurrentMonth?"rgba(79,142,247,0.25)":"rgba(255,255,255,0.07)"}`,borderRadius:14,padding:"16px 20px",marginBottom:10,cursor:"pointer"}}
+                  onClick={()=>{setMonth(m);setYear(y);setTab("budget");}}>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+                    <div>
+                      <div style={{fontSize:15,fontWeight:600,color:"#ddd"}}>{MONTHS[m]} {y} {isCurrentMonth&&<span className="pill" style={{background:"rgba(79,142,247,0.2)",color:"#4F8EF7",marginLeft:6}}>current</span>}</div>
+                      <div style={{fontSize:12,color:"#555",marginTop:3}}>{mTx.length} transaction{mTx.length!==1?"s":""} · ${fmt(mDailyAvg)}/day avg</div>
+                    </div>
+                    <div style={{display:"flex",gap:20,alignItems:"center"}}>
+                      {mIncome>0&&<div style={{textAlign:"right"}}>
+                        <div style={{fontSize:10,color:"#555",textTransform:"uppercase",letterSpacing:"0.08em"}}>Income</div>
+                        <div style={{fontSize:14,fontWeight:600,color:"#4FCF8E"}}>${fmtInt(mIncome)}</div>
+                      </div>}
+                      <div style={{textAlign:"right"}}>
+                        <div style={{fontSize:10,color:"#555",textTransform:"uppercase",letterSpacing:"0.08em"}}>Spent</div>
+                        <div style={{fontSize:14,fontWeight:600,color:"#F7A44F"}}>${fmtInt(mSpent)}</div>
+                      </div>
+                      {mBudgeted>0&&<div style={{textAlign:"right"}}>
+                        <div style={{fontSize:10,color:"#555",textTransform:"uppercase",letterSpacing:"0.08em"}}>Budget</div>
+                        <div style={{fontSize:14,fontWeight:600,color:over?"#F74F6A":"#4FCF8E"}}>{Math.round(pct)}%</div>
+                      </div>}
+                    </div>
+                  </div>
+                  {mBudgeted>0&&<div style={{marginTop:12}}><MiniBar value={mSpent} max={mBudgeted} color={over?"#F74F6A":"#4FCF8E"}/></div>}
+                  {/* Per-category mini breakdown */}
+                  <div style={{display:"flex",gap:6,marginTop:12,flexWrap:"wrap"}}>
+                    {CATEGORIES.filter(c=>(mBudgets[c.id]||0)>0||(mTx.filter(t=>t.category===c.id).length>0)).map(c=>{
+                      const cs=mTx.filter(t=>t.category===c.id).reduce((s,t)=>s+t.amount,0);
+                      if(!cs)return null;
+                      return <span key={c.id} className="pill" style={{background:c.color+"18",color:c.color}}>{c.icon} ${fmtInt(cs)}</span>;
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </>
+        )}
+      </div>
+    )}
+  </div>
+</div>
+```
+
+);
+}
+
+ReactDOM.createRoot(document.getElementById(“root”)).render(<App/>);
+</script>
+
+</body>
+</html>
