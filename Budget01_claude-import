@@ -14,14 +14,10 @@
 body { background: linear-gradient(135deg, #0a0a1a 0%, #0d1b2a 50%, #0a1628 100%); min-height: 100vh; font-family: 'DM Sans', sans-serif; color: #e8e8f0; }
 input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;}
 input[type=number]{-moz-appearance:textfield;}
-.upload-zone{border:2px dashed rgba(79,142,247,0.3);border-radius:14px;padding:28px 20px;text-align:center;cursor:pointer;transition:all 0.2s;background:rgba(79,142,247,0.04);}
-.upload-zone:hover,.upload-zone.drag{border-color:#4F8EF7;background:rgba(79,142,247,0.1);}
 .tab-btn{flex:1;padding:10px 0;border-radius:7px;border:none;cursor:pointer;font-family:inherit;font-size:13px;font-weight:600;transition:all 0.2s;}
 .tx-row{display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);margin-bottom:6px;}
 .pill{display:inline-block;padding:2px 10px;border-radius:99px;font-size:11px;font-weight:600;}
 button:disabled{opacity:0.5;cursor:not-allowed;}
-.spinner{display:inline-block;width:16px;height:16px;border:2px solid rgba(255,255,255,0.2);border-top-color:#4F8EF7;border-radius:50%;animation:spin 0.7s linear infinite;vertical-align:middle;margin-right:6px;}
-@keyframes spin{to{transform:rotate(360deg);}}
 select{background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#fff;font-family:inherit;font-size:12px;padding:4px 8px;outline:none;cursor:pointer;}
 select option{background:#1a2540;}
 .card{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.07);border-radius:14px;padding:16px 14px;text-align:center;}
@@ -34,7 +30,7 @@ select option{background:#1a2540;}
 <body>
 <div id="root"></div>
 <script type="text/babel">
-const { useState, useEffect, useRef, useCallback } = React;
+const { useState, useEffect, useRef } = React;
 
 const CATEGORIES = [
 { id:“housing”,       label:“Housing & Utilities”,           icon:“🏠”, color:”#4F8EF7” },
@@ -53,18 +49,11 @@ function fmt(v){return Number(v||0).toLocaleString(“en-US”,{minimumFractionD
 function fmtInt(v){return Number(v||0).toLocaleString(“en-US”,{minimumFractionDigits:0,maximumFractionDigits:0});}
 function parse(s){return parseFloat((s||””).toString().replace(/[^0-9.]/g,””))||0;}
 function storageKey(m,y){return `budget_${y}_${m}`;}
-function fileToBase64(file){return new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result.split(”,”)[1]);r.onerror=()=>rej(new Error(“Read failed”));r.readAsDataURL(file);});}
-
-function loadMonth(m,y){
-try{ const raw=localStorage.getItem(storageKey(m,y)); return raw?JSON.parse(raw):null; }
-catch(e){ return null; }
-}
-function saveMonth(m,y,data){
-try{ localStorage.setItem(storageKey(m,y),JSON.stringify(data)); }catch(e){}
-}
+function loadMonth(m,y){try{const r=localStorage.getItem(storageKey(m,y));return r?JSON.parse(r):null;}catch(e){return null;}}
+function saveMonth(m,y,data){try{localStorage.setItem(storageKey(m,y),JSON.stringify(data));}catch(e){}}
 function getAllMonths(){
-const keys=[]; for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(k&&k.startsWith(“budget_”))keys.push(k);}
-return keys.map(k=>{const [,y,m]=k.split(”_”);return{year:parseInt(y),month:parseInt(m),key:k};}).sort((a,b)=>b.year-a.year||b.month-a.month);
+const keys=[];for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(k&&k.startsWith(“budget_”))keys.push(k);}
+return keys.map(k=>{const[,y,m]=k.split(”_”);return{year:parseInt(y),month:parseInt(m),key:k};}).sort((a,b)=>b.year-a.year||b.month-a.month);
 }
 
 function DonutChart({budgets,transactions}){
@@ -101,38 +90,22 @@ const [income,setIncome]=useState(””);
 const [budgets,setBudgets]=useState({});
 const [transactions,setTransactions]=useState([]);
 const [tab,setTab]=useState(“budget”);
-const [dragging,setDragging]=useState(false);
-const [uploading,setUploading]=useState(false);
-const [uploadMsg,setUploadMsg]=useState(null);
 const [manualDesc,setManualDesc]=useState(””);
 const [manualAmt,setManualAmt]=useState(””);
 const [manualCat,setManualCat]=useState(“food”);
 const [manualDate,setManualDate]=useState(now.toISOString().split(“T”)[0]);
 const [savedAt,setSavedAt]=useState(null);
-const fileRef=useRef();
 
-// Load month data from localStorage whenever month/year changes
 useEffect(()=>{
 const data=loadMonth(month,year);
-if(data){
-setIncome(data.income||””);
-setBudgets(data.budgets||{});
-setTransactions(data.transactions||[]);
-} else {
-setIncome(””);
-setBudgets({});
-setTransactions([]);
-}
+if(data){setIncome(data.income||””);setBudgets(data.budgets||{});setTransactions(data.transactions||[]);}
+else{setIncome(””);setBudgets({});setTransactions([]);}
 setSavedAt(null);
 },[month,year]);
 
-// Auto-save whenever data changes
 useEffect(()=>{
-const timer=setTimeout(()=>{
-saveMonth(month,year,{income,budgets,transactions});
-setSavedAt(new Date());
-},600);
-return ()=>clearTimeout(timer);
+const timer=setTimeout(()=>{saveMonth(month,year,{income,budgets,transactions});setSavedAt(new Date());},600);
+return()=>clearTimeout(timer);
 },[income,budgets,transactions,month,year]);
 
 const days=daysInMonth(month,year);
@@ -157,47 +130,10 @@ setTransactions(prev=>[…prev,{id:Date.now(),description:manualDesc,amount:pars
 setManualDesc(””);setManualAmt(””);
 }
 
-async function processFile(file){
-setUploading(true);setUploadMsg(null);
-try{
-if(!file.type.startsWith(“image/”)&&file.type!==“application/pdf”){setUploadMsg({type:“error”,text:“Please upload an image or PDF.”});setUploading(false);return;}
-const base64=await fileToBase64(file);
-const userContent=file.type===“application/pdf”
-?[{type:“document”,source:{type:“base64”,media_type:“application/pdf”,data:base64}},{type:“text”,text:“Extract all transactions as JSON only.”}]
-:[{type:“image”,source:{type:“base64”,media_type:file.type,data:base64}},{type:“text”,text:“Extract all transactions as JSON only.”}];
-const res=await fetch(“https://api.anthropic.com/v1/messages”,{
-method:“POST”,headers:{“Content-Type”:“application/json”},
-body:JSON.stringify({
-model:“claude-sonnet-4-20250514”,max_tokens:4000,
-system:`You are a financial data extractor. Extract ALL transactions and return ONLY a JSON array. No markdown, no explanation. Each item: {"description":string,"amount":number,"date":"YYYY-MM-DD","category":one of [housing,food,transport,entertainment,savings,health,debt,personal]}. If year missing use ${year}. Classify by merchant.`,
-messages:[{role:“user”,content:userContent}]
-})
-});
-const data=await res.json();
-if(data.error)throw new Error(data.error.message);
-const text=data.content.map(b=>b.text||””).join(””);
-const parsed=JSON.parse(text.replace(/`json|`/g,””).trim());
-if(!Array.isArray(parsed))throw new Error(“Unexpected response”);
-const newTx=parsed.map((t,i)=>({
-id:Date.now()+i,
-description:t.description||“Unknown”,
-amount:Math.abs(parseFloat(t.amount)||0),
-category:CATEGORIES.find(c=>c.id===t.category)?t.category:“personal”,
-date:t.date||`${year}-${String(month+1).padStart(2,"0")}-01`,
-source:“import”
-}));
-setTransactions(prev=>[…prev,…newTx]);
-setUploadMsg({type:“success”,text:`✓ Imported ${newTx.length} transactions from ${file.name}`});
-}catch(err){setUploadMsg({type:“error”,text:`Error: ${err.message}`});}
-setUploading(false);
-}
-
 const catColor=id=>CATEGORIES.find(c=>c.id===id)?.color||”#888”;
 const catIcon=id=>CATEGORIES.find(c=>c.id===id)?.icon||”•”;
 const catLabel=id=>CATEGORIES.find(c=>c.id===id)?.label||id;
 const sortedTx=[…transactions].sort((a,b)=>new Date(b.date)-new Date(a.date));
-
-// History data
 const allMonths=getAllMonths();
 
 return(
@@ -209,7 +145,7 @@ return(
 <div>
 <div style={{fontSize:11,letterSpacing:“0.15em”,textTransform:“uppercase”,color:”#4F8EF7”,marginBottom:4}}>
 Monthly Budget
-{savedAt&&<span className=“save-dot” title={`Saved ${savedAt.toLocaleTimeString()}`}/>}
+{savedAt&&<span className="save-dot" title="Saved"/>}
 </div>
 <h1 style={{fontSize:32,fontWeight:700,color:”#fff”,fontFamily:”‘DM Serif Display’,serif”}}>{MONTHS[month]} {year}</h1>
 </div>
@@ -232,7 +168,7 @@ style={{background:“transparent”,border:“none”,outline:“none”,color:
 
 ```
   <div style={{maxWidth:720,margin:"0 auto",padding:"0 24px"}}>
-    {/* Summary */}
+    {/* Summary cards */}
     <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,marginTop:24}}>
       {[{label:"Budgeted",value:totalBudgeted,color:"#4F8EF7"},{label:"Spent",value:totalSpent,color:"#F7A44F"},{label:"Remaining",value:leftover,color:leftover<0?"#F74F6A":"#4FCF8E"}].map(c=>(
         <div key={c.label} className="card">
@@ -272,7 +208,7 @@ style={{background:“transparent”,border:“none”,outline:“none”,color:
 
     {/* Tabs */}
     <div style={{display:"flex",gap:4,marginTop:24,background:"rgba(255,255,255,0.04)",borderRadius:10,padding:4}}>
-      {[["budget","📊 Budget"],["track","💳 Transactions"],["import","📄 Import"],["history","🗂 History"]].map(([t,label])=>(
+      {[["budget","📊 Budget"],["track","💳 Transactions"],["history","🗂 History"]].map(([t,label])=>(
         <button key={t} className="tab-btn" onClick={()=>setTab(t)}
           style={{background:tab===t?"rgba(79,142,247,0.2)":"transparent",color:tab===t?"#4F8EF7":"#666",borderBottom:tab===t?"2px solid #4F8EF7":"2px solid transparent"}}>
           {label}
@@ -280,7 +216,7 @@ style={{background:“transparent”,border:“none”,outline:“none”,color:
       ))}
     </div>
 
-    {/* ── BUDGET TAB ── */}
+    {/* BUDGET TAB */}
     {tab==="budget"&&(
       <div style={{marginTop:16,display:"flex",flexDirection:"column",gap:10,paddingBottom:40}}>
         {CATEGORIES.map(c=>{
@@ -316,11 +252,11 @@ style={{background:“transparent”,border:“none”,outline:“none”,color:
       </div>
     )}
 
-    {/* ── TRANSACTIONS TAB ── */}
+    {/* TRANSACTIONS TAB */}
     {tab==="track"&&(
       <div style={{marginTop:16,paddingBottom:40}}>
         <div style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:14,padding:18,marginBottom:20}}>
-          <div style={{fontSize:12,color:"#888",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:14}}>Add Transaction Manually</div>
+          <div style={{fontSize:12,color:"#888",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:14}}>Add Transaction</div>
           <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
             <input placeholder="Description" value={manualDesc} onChange={e=>setManualDesc(e.target.value)}
               style={{flex:2,minWidth:140,background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:8,color:"#fff",fontFamily:"inherit",fontSize:14,padding:"8px 12px",outline:"none"}}/>
@@ -335,13 +271,15 @@ style={{background:“transparent”,border:“none”,outline:“none”,color:
               style={{background:"#4F8EF7",border:"none",borderRadius:8,color:"#fff",fontFamily:"inherit",fontSize:14,fontWeight:600,padding:"8px 20px",cursor:"pointer"}}>+ Add</button>
           </div>
         </div>
+
         {overBudget.length>0&&(
           <div style={{marginBottom:16,background:"rgba(247,79,106,0.1)",border:"1px solid rgba(247,79,106,0.3)",borderRadius:10,padding:"12px 16px",fontSize:13,color:"#F74F6A"}}>
             ⚠ Over budget: {overBudget.map(c=>c.label).join(", ")}
           </div>
         )}
+
         {sortedTx.length===0
-          ?<div style={{textAlign:"center",color:"#444",padding:"40px 0",fontSize:14}}>No transactions yet. Add manually or import a statement.</div>
+          ?<div style={{textAlign:"center",color:"#444",padding:"40px 0",fontSize:14}}>No transactions yet. Add one above!</div>
           :<>
             <div style={{fontSize:12,color:"#555",marginBottom:10}}>{sortedTx.length} transaction{sortedTx.length!==1?"s":""} · Total: <span style={{color:"#F7A44F",fontWeight:600}}>${fmt(totalSpent)}</span> · Daily avg: <span style={{color:"#4FF7F0",fontWeight:600}}>${fmt(dailyAvg)}</span></div>
             {sortedTx.map(t=>(
@@ -352,7 +290,6 @@ style={{background:“transparent”,border:“none”,outline:“none”,color:
                   <div style={{fontSize:11,color:"#555",marginTop:2}}>
                     {t.date} ·&nbsp;
                     <span className="pill" style={{background:catColor(t.category)+"22",color:catColor(t.category)}}>{catLabel(t.category)}</span>
-                    {t.source==="import"&&<span className="pill" style={{background:"rgba(79,142,247,0.15)",color:"#4F8EF7",marginLeft:4}}>imported</span>}
                   </div>
                 </div>
                 <div style={{fontSize:15,fontWeight:700,color:"#F7A44F"}}>${fmt(t.amount)}</div>
@@ -364,48 +301,13 @@ style={{background:“transparent”,border:“none”,outline:“none”,color:
       </div>
     )}
 
-    {/* ── IMPORT TAB ── */}
-    {tab==="import"&&(
-      <div style={{marginTop:16,paddingBottom:40}}>
-        <div className={`upload-zone${dragging?" drag":""}`}
-          onDragOver={e=>{e.preventDefault();setDragging(true);}}
-          onDragLeave={()=>setDragging(false)}
-          onDrop={e=>{e.preventDefault();setDragging(false);const f=e.dataTransfer.files[0];if(f)processFile(f);}}
-          onClick={()=>!uploading&&fileRef.current.click()}>
-          <input ref={fileRef} type="file" accept="image/*,.pdf" style={{display:"none"}} onChange={e=>e.target.files[0]&&processFile(e.target.files[0])}/>
-          <div style={{fontSize:36,marginBottom:10}}>📄</div>
-          {uploading
-            ?<div style={{color:"#4F8EF7",fontSize:14}}><span className="spinner"/>Analysing statement with AI…</div>
-            :<>
-              <div style={{fontSize:15,fontWeight:600,color:"#ccc",marginBottom:6}}>Drop a bank or credit card statement here</div>
-              <div style={{fontSize:13,color:"#555"}}>Supports images (JPG, PNG) and PDF files</div>
-              <div style={{marginTop:14,display:"inline-block",background:"rgba(79,142,247,0.15)",border:"1px solid rgba(79,142,247,0.3)",borderRadius:8,padding:"8px 20px",fontSize:13,color:"#4F8EF7",fontWeight:600}}>Browse Files</div>
-            </>
-          }
-        </div>
-        {uploadMsg&&(
-          <div style={{marginTop:14,padding:"12px 16px",borderRadius:10,fontSize:13,fontWeight:500,
-            background:uploadMsg.type==="success"?"rgba(79,207,142,0.1)":"rgba(247,79,106,0.1)",
-            border:`1px solid ${uploadMsg.type==="success"?"rgba(79,207,142,0.3)":"rgba(247,79,106,0.3)"}`,
-            color:uploadMsg.type==="success"?"#4FCF8E":"#F74F6A"}}>
-            {uploadMsg.text}
-          </div>
-        )}
-        <div style={{marginTop:20,background:"rgba(255,255,255,0.02)",borderRadius:12,border:"1px solid rgba(255,255,255,0.05)",padding:16}}>
-          <div style={{fontSize:12,color:"#555",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10}}>How it works</div>
-          <div style={{fontSize:13,color:"#666",lineHeight:1.8}}>Upload a photo or PDF of your bank or credit card statement. Claude AI will read every transaction, categorise it automatically, and add it to your tracker. Head to the <strong style={{color:"#aaa"}}>Transactions</strong> tab to review, re-categorise, or delete entries.</div>
-        </div>
-      </div>
-    )}
-
-    {/* ── HISTORY TAB ── */}
+    {/* HISTORY TAB */}
     {tab==="history"&&(
       <div style={{marginTop:16,paddingBottom:40}}>
-        {allMonths.length===0?(
-          <div style={{textAlign:"center",color:"#444",padding:"40px 0",fontSize:14}}>No historical data yet. Your data will appear here as you add transactions each month.</div>
-        ):(
-          <>
-            <div style={{fontSize:12,color:"#555",marginBottom:16}}>{allMonths.length} month{allMonths.length!==1?"s":""} saved locally in this browser</div>
+        {allMonths.length===0
+          ?<div style={{textAlign:"center",color:"#444",padding:"40px 0",fontSize:14}}>No historical data yet. Your months will appear here as you use the app.</div>
+          :<>
+            <div style={{fontSize:12,color:"#555",marginBottom:16}}>{allMonths.length} month{allMonths.length!==1?"s":""} saved</div>
             {allMonths.map(({month:m,year:y,key})=>{
               const data=loadMonth(m,y);
               if(!data)return null;
@@ -420,14 +322,14 @@ style={{background:“transparent”,border:“none”,outline:“none”,color:
               const pct=mBudgeted>0?Math.min(100,(mSpent/mBudgeted)*100):0;
               const over=mSpent>mBudgeted&&mBudgeted>0;
               return(
-                <div key={key} style={{background:isCurrentMonth?"rgba(79,142,247,0.06)":"rgba(255,255,255,0.03)",border:`1px solid ${isCurrentMonth?"rgba(79,142,247,0.25)":"rgba(255,255,255,0.07)"}`,borderRadius:14,padding:"16px 20px",marginBottom:10,cursor:"pointer"}}
-                  onClick={()=>{setMonth(m);setYear(y);setTab("budget");}}>
+                <div key={key} onClick={()=>{setMonth(m);setYear(y);setTab("budget");}}
+                  style={{background:isCurrentMonth?"rgba(79,142,247,0.06)":"rgba(255,255,255,0.03)",border:`1px solid ${isCurrentMonth?"rgba(79,142,247,0.25)":"rgba(255,255,255,0.07)"}`,borderRadius:14,padding:"16px 20px",marginBottom:10,cursor:"pointer"}}>
                   <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
                     <div>
                       <div style={{fontSize:15,fontWeight:600,color:"#ddd"}}>{MONTHS[m]} {y} {isCurrentMonth&&<span className="pill" style={{background:"rgba(79,142,247,0.2)",color:"#4F8EF7",marginLeft:6}}>current</span>}</div>
                       <div style={{fontSize:12,color:"#555",marginTop:3}}>{mTx.length} transaction{mTx.length!==1?"s":""} · ${fmt(mDailyAvg)}/day avg</div>
                     </div>
-                    <div style={{display:"flex",gap:20,alignItems:"center"}}>
+                    <div style={{display:"flex",gap:20}}>
                       {mIncome>0&&<div style={{textAlign:"right"}}>
                         <div style={{fontSize:10,color:"#555",textTransform:"uppercase",letterSpacing:"0.08em"}}>Income</div>
                         <div style={{fontSize:14,fontWeight:600,color:"#4FCF8E"}}>${fmtInt(mIncome)}</div>
@@ -443,9 +345,8 @@ style={{background:“transparent”,border:“none”,outline:“none”,color:
                     </div>
                   </div>
                   {mBudgeted>0&&<div style={{marginTop:12}}><MiniBar value={mSpent} max={mBudgeted} color={over?"#F74F6A":"#4FCF8E"}/></div>}
-                  {/* Per-category mini breakdown */}
                   <div style={{display:"flex",gap:6,marginTop:12,flexWrap:"wrap"}}>
-                    {CATEGORIES.filter(c=>(mBudgets[c.id]||0)>0||(mTx.filter(t=>t.category===c.id).length>0)).map(c=>{
+                    {CATEGORIES.map(c=>{
                       const cs=mTx.filter(t=>t.category===c.id).reduce((s,t)=>s+t.amount,0);
                       if(!cs)return null;
                       return <span key={c.id} className="pill" style={{background:c.color+"18",color:c.color}}>{c.icon} ${fmtInt(cs)}</span>;
@@ -455,7 +356,7 @@ style={{background:“transparent”,border:“none”,outline:“none”,color:
               );
             })}
           </>
-        )}
+        }
       </div>
     )}
   </div>
